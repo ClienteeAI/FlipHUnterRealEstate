@@ -1,0 +1,29 @@
+# FlipHunter dashboard — runs alongside the existing n8n/Traefik stack.
+# Joins the existing `n8n_default` network so Traefik can route to it and issue
+# HTTPS automatically (same pattern as n8n). Does NOT touch the n8n stack.
+#
+#   DASHBOARD_DOMAIN (in .env) = the subdomain you point at this VPS, e.g. flip.tvojedomena.cz
+#
+#   docker compose up -d --build
+
+services:
+  dashboard:
+    build: .
+    image: fliphunter-dashboard
+    container_name: fliphunter-dashboard
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - n8n_default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.fliphunter.rule=Host(`${DASHBOARD_DOMAIN}`)
+      - traefik.http.routers.fliphunter.entrypoints=websecure
+      - traefik.http.routers.fliphunter.tls=true
+      - traefik.http.routers.fliphunter.tls.certresolver=mytlschallenge
+      - traefik.http.services.fliphunter.loadbalancer.server.port=3000
+
+networks:
+  n8n_default:
+    external: true

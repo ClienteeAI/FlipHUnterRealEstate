@@ -1,0 +1,11 @@
+node_modules
+.git
+.env
+*.log
+run_fast_log.txt
+run_search_log.txt
+data
+storage
+scratch
+*.png
+deploy
