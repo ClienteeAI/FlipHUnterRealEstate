@@ -32,6 +32,12 @@ const AUTH_ENABLED = process.env.AUTH_ENABLED === '1';
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_KEY || 'dev-secret';
 const SESSION_TTL = 12 * 3600 * 1000;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1';
+const INVITE_CODE = process.env.INVITE_CODE || '';   // clients self-register with this code
+
+function sessionCookie(user) {
+    return `sess=${signSession({ sub: user.id, email: user.email, exp: Date.now() + SESSION_TTL })}` +
+        `; HttpOnly; Path=/; Max-Age=${SESSION_TTL / 1000}; SameSite=Lax` + (COOKIE_SECURE ? '; Secure' : '');
+}
 
 function signSession(obj) {
     const body = Buffer.from(JSON.stringify(obj)).toString('base64url');
@@ -57,6 +63,10 @@ function parseCookies(req) {
 function isAuthed(req) {
     if (!AUTH_ENABLED) return true;
     return !!verifySession(parseCookies(req).sess);
+}
+function currentUser(req) {
+    if (!AUTH_ENABLED) return { sub: 'local', email: 'local' };
+    return verifySession(parseCookies(req).sess) || {};
 }
 
 const DEAL_FIELDS = 'id, lead_tier, lead_score, is_agent, approved, sent_to_crm, ' +
@@ -149,10 +159,24 @@ const server = http.createServer(async (req, res) => {
             const { email, password } = await readBody(req);
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
             if (error || !data?.user) return json(res, 401, { error: 'Neplatné přihlášení.' });
-            const cookie = `sess=${signSession({ sub: data.user.id, exp: Date.now() + SESSION_TTL })}` +
-                `; HttpOnly; Path=/; Max-Age=${SESSION_TTL / 1000}; SameSite=Lax` + (COOKIE_SECURE ? '; Secure' : '');
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': cookie });
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': sessionCookie(data.user) });
             return res.end(JSON.stringify({ ok: true }));
+        }
+        if (req.method === 'GET' && u.pathname === '/register') {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            return res.end(REGISTER_HTML);
+        }
+        if (req.method === 'POST' && u.pathname === '/api/register') {
+            const { email, password, code } = await readBody(req);
+            if (!INVITE_CODE || code !== INVITE_CODE) return json(res, 403, { error: 'Neplatný zvací kód.' });
+            if (!email || !password || password.length < 6) return json(res, 400, { error: 'Zadej e-mail a heslo (min. 6 znaků).' });
+            const { data, error } = await supabase.auth.signUp({ email, password });
+            if (error) return json(res, 400, { error: error.message });
+            if (data.session) {   // no email confirmation required → log in immediately
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': sessionCookie(data.user) });
+                return res.end(JSON.stringify({ ok: true, loggedIn: true }));
+            }
+            return json(res, 200, { ok: true, loggedIn: false });  // must confirm via e-mail first
         }
         if (req.method === 'POST' && u.pathname === '/api/logout') {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': 'sess=; HttpOnly; Path=/; Max-Age=0' });
@@ -178,14 +202,15 @@ const server = http.createServer(async (req, res) => {
         }
         if (req.method === 'POST' && u.pathname === '/api/approve') {
             const { id, approved } = await readBody(req);
+            const who = currentUser(req).email || null;
             const { error } = await supabase.from('properties')
-                .update({ approved: approved !== false }).eq('id', id);
+                .update({ approved: approved !== false, approved_by: approved !== false ? who : null }).eq('id', id);
             return error ? json(res, 500, { error: error.message }) : json(res, 200, { ok: true });
         }
         if (req.method === 'POST' && u.pathname === '/api/dismiss') {
             const { id } = await readBody(req);
             const { error } = await supabase.from('properties')
-                .update({ eval_status: 'dismissed' }).eq('id', id);
+                .update({ eval_status: 'dismissed', dismissed_by: currentUser(req).email || null }).eq('id', id);
             return error ? json(res, 500, { error: error.message }) : json(res, 200, { ok: true });
         }
         json(res, 404, { error: 'not found' });
@@ -346,6 +371,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
   <label>Heslo</label><input id="password" type="password" autocomplete="current-password" required>
   <button type="submit">Přihlásit</button>
   <div class="err" id="err"></div>
+  <div style="text-align:center;margin-top:14px;font-size:13px"><a href="/register">Nemáš účet? Zaregistruj se</a></div>
 </form>
 <script>
 async function login(e){
@@ -353,6 +379,43 @@ async function login(e){
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:email.value,password:password.value})});
   if(r.ok){location.href='/';}else{document.getElementById('err').textContent='Neplatný e-mail nebo heslo.';}
+  return false;
+}
+</script></body></html>`;
+
+// ----------------------------------------------------------------------------
+const REGISTER_HTML = `<!DOCTYPE html>
+<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Registrace — Deal Dashboard</title>
+<style>
+  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f5f7;font:14px system-ui,Segoe UI,Roboto,sans-serif;color:#1f2430}
+  .box{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px;width:330px;box-shadow:0 4px 20px rgba(0,0,0,.06)}
+  h1{font-size:18px;margin:0 0 4px}.sub{color:#6b7280;font-size:13px;margin-bottom:18px}
+  label{display:block;font-size:12px;color:#6b7280;margin:10px 0 4px}
+  input{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px}
+  button{width:100%;margin-top:18px;padding:11px;background:#c8102e;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+  .msg{font-size:13px;margin-top:10px;min-height:18px}.err{color:#c0392b}.ok{color:#0a8f5b}
+  a{color:#7aa2ff;text-decoration:none}
+</style></head><body>
+<form class="box" onsubmit="return reg(event)">
+  <h1>🏠 Registrace</h1><div class="sub">Vytvoř si účet do Deal Dashboardu.</div>
+  <label>E-mail</label><input id="email" type="email" autocomplete="username" required>
+  <label>Heslo (min. 6 znaků)</label><input id="password" type="password" autocomplete="new-password" required>
+  <label>Zvací kód</label><input id="code" type="text" required>
+  <button type="submit">Zaregistrovat</button>
+  <div class="msg" id="msg"></div>
+  <div style="text-align:center;margin-top:14px;font-size:13px"><a href="/login">Už mám účet — přihlásit</a></div>
+</form>
+<script>
+async function reg(e){
+  e.preventDefault();
+  const m=document.getElementById('msg');m.className='msg';m.textContent='…';
+  const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:email.value,password:password.value,code:code.value})});
+  const d=await r.json().catch(()=>({}));
+  if(r.ok && d.loggedIn){location.href='/';return false;}
+  if(r.ok){m.className='msg ok';m.textContent='Účet vytvořen. Potvrď registraci v e-mailu a pak se přihlas.';return false;}
+  m.className='msg err';m.textContent=d.error||'Registrace selhala.';
   return false;
 }
 </script></body></html>`;
