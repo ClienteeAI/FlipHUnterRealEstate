@@ -13,6 +13,8 @@ const http = require('http');
 const crypto = require('crypto');
 const supabase = require('../db/client');
 const { checkOne } = require('../db/check_liveness');
+const { buildPayload } = require('../engine/crm_push');
+const { sendToWebhook } = require('../utils/webhook');
 
 const PORT = process.env.DASHBOARD_PORT || 3000;
 const FRESH_MS = 10 * 60 * 1000;
@@ -203,9 +205,28 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && u.pathname === '/api/approve') {
             const { id, approved } = await readBody(req);
             const who = currentUser(req).email || null;
-            const { error } = await supabase.from('properties')
-                .update({ approved: approved !== false, approved_by: approved !== false ? who : null }).eq('id', id);
-            return error ? json(res, 500, { error: error.message }) : json(res, 200, { ok: true });
+
+            if (approved === false) {   // un-approve (cannot un-send CRM)
+                const { error } = await supabase.from('properties')
+                    .update({ approved: false, approved_by: null }).eq('id', id);
+                return error ? json(res, 500, { error: error.message }) : json(res, 200, { ok: true });
+            }
+
+            // approve → send the lead to the CRM webhook (once), then mark sent
+            const { data: row, error: e1 } = await supabase.from('properties').select('*').eq('id', id).maybeSingle();
+            if (e1 || !row) return json(res, 500, { error: e1?.message || 'lead nenalezen' });
+
+            await supabase.from('properties').update({ approved: true, approved_by: who }).eq('id', id);
+
+            if (row.sent_to_crm) return json(res, 200, { ok: true, crm: 'already_sent' });
+            try {
+                await sendToWebhook(buildPayload(row));
+                await supabase.from('properties')
+                    .update({ sent_to_crm: true, sent_to_crm_at: new Date().toISOString() }).eq('id', id);
+                return json(res, 200, { ok: true, crm: 'sent' });
+            } catch (e) {
+                return json(res, 200, { ok: true, crm: 'failed', error: e.message });
+            }
         }
         if (req.method === 'POST' && u.pathname === '/api/dismiss') {
             const { id } = await readBody(req);
@@ -341,8 +362,21 @@ async function load(){
       '</div>'+
       '<div class="tags">'+(r.distress_factors||[]).map(x=>'<span class="tag">'+x+'</span>').join('')+'</div>';
     const acts=document.createElement('div');acts.className='act-row';
-    const ap=document.createElement('button');ap.className=r.approved?'appr':'';ap.textContent=r.approved?'✓ Schváleno':'Schválit → CRM';
-    ap.onclick=async()=>{const v=!ap.classList.contains('appr');await fetch('/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:r.id,approved:v})});ap.className=v?'appr':'';ap.textContent=v?'✓ Schváleno':'Schválit → CRM';};
+    const ap=document.createElement('button');
+    const setAp=s=>{ if(s==='sent'){ap.className='appr';ap.textContent='✓ V CRM';ap.disabled=true;}
+      else if(s==='approved'){ap.className='appr';ap.textContent='✓ Schváleno';ap.disabled=false;}
+      else{ap.className='';ap.textContent='Schválit → CRM';ap.disabled=false;} };
+    setAp(r.sent_to_crm?'sent':(r.approved?'approved':'none'));
+    ap.onclick=async()=>{
+      if(ap.classList.contains('appr')&&!ap.disabled){
+        await fetch('/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:r.id,approved:false})});setAp('none');return;}
+      ap.disabled=true;ap.textContent='Odesílám…';
+      const resp=await fetch('/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:r.id,approved:true})});
+      const d=await resp.json().catch(()=>({}));
+      if(d.crm==='sent'||d.crm==='already_sent')setAp('sent');
+      else if(d.crm==='failed'){ap.className='';ap.disabled=false;ap.textContent='CRM chyba – znovu';}
+      else setAp('approved');
+    };
     const hd=document.createElement('button');hd.className='hide';hd.textContent='Skrýt';
     hd.onclick=async()=>{await fetch('/api/dismiss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:r.id})});c.remove();};
     acts.append(ap,hd);body.appendChild(acts);
