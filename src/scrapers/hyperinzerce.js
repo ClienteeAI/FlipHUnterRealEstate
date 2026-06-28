@@ -11,13 +11,12 @@ async function scrapeHyperinzerce() {
     const proxyPassword = process.env.APIFY_PROXY_PASSWORD;
     
     let proxyConfiguration;
-    try {
+    if (proxyPassword) {
         proxyConfiguration = new ProxyConfiguration({
             proxyUrls: [`http://groups-RESIDENTIAL,country-CZ:${proxyPassword}@proxy.apify.com:8000`]
         });
-    } catch (e) {
-        console.log("No proxy configured, running locally for Hyperinzerce.");
-        proxyConfiguration = undefined;
+    } else {
+        console.log("No proxy configured, running directly for Hyperinzerce.");
     }
 
     const crawler = new PlaywrightCrawler({
