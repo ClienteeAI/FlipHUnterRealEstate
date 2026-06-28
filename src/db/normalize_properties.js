@@ -34,6 +34,34 @@ function parseOwnership(text, current) {
     return null;
 }
 
+// --- CITY PART (micro-location): Prague quarter / Středočeský town -----------
+// Intra-okres price spread is huge (Praha 9 = pricey Vysočany vs cheap Čakovice),
+// so we extract the finer place name for AVM cohorts.
+const PRAHA_QUARTERS = [
+    'Staré Město', 'Nové Město', 'Malá Strana', 'Hradčany', 'Josefov',
+    'Vinohrady', 'Vyšehrad', 'Žižkov', 'Nusle', 'Michle', 'Krč', 'Podolí', 'Braník',
+    'Modřany', 'Lhotka', 'Kamýk', 'Hodkovičky', 'Háje', 'Libuš', 'Písnice', 'Kunratice',
+    'Šeberov', 'Smíchov', 'Košíře', 'Motol', 'Jinonice', 'Radlice', 'Hlubočepy',
+    'Barrandov', 'Stodůlky', 'Zličín', 'Řeporyje', 'Slivenec', 'Zbraslav', 'Radotín',
+    'Velká Chuchle', 'Lipence', 'Dejvice', 'Bubeneč', 'Břevnov', 'Střešovice', 'Veleslavín',
+    'Vokovice', 'Liboc', 'Ruzyně', 'Řepy', 'Sedlec', 'Lysolaje', 'Nebušice', 'Suchdol',
+    'Holešovice', 'Troja', 'Karlín', 'Libeň', 'Kobylisy', 'Bohnice', 'Střížkov', 'Ďáblice',
+    'Čimice', 'Dolní Chabry', 'Březiněves', 'Vysočany', 'Prosek', 'Hloubětín', 'Hrdlořezy',
+    'Kyje', 'Hostavice', 'Černý Most', 'Čakovice', 'Miškovice', 'Třeboradice', 'Kbely',
+    'Letňany', 'Klánovice', 'Koloděje', 'Újezd nad Lesy', 'Běchovice', 'Dolní Počernice',
+    'Horní Počernice', 'Satalice', 'Vinoř', 'Jahodnice', 'Vršovice', 'Strašnice', 'Záběhlice',
+    'Malešice', 'Hostivař', 'Petrovice', 'Štěrboholy', 'Dubeč', 'Dolní Měcholupy',
+    'Horní Měcholupy', 'Křeslice', 'Pitkovice', 'Kolovraty', 'Uhříněves', 'Chodov'
+].map(q => ({ name: q, re: new RegExp(`\\b${stripDiacritics(q).toLowerCase().replace(/[-\s]+/g, '[-\\s]+')}\\b`) }))
+ .sort((a, b) => b.name.length - a.name.length);
+
+function parseCityPart(title, locationRaw) {
+    const t = stripDiacritics(`${title || ''} ${locationRaw || ''}`.toLowerCase());
+    if (!t) return null;
+    for (const q of PRAHA_QUARTERS) if (q.re.test(t)) return q.name;
+    return null;
+}
+
 // --- DISPOSITION: "3+kk", "2+1", garsonka -> "1+kk" ---------------------------
 function parseDisposition(text) {
     const t = (text || '').toLowerCase();
@@ -128,7 +156,7 @@ async function normalize() {
     for (;;) {
         const { data, error } = await supabase
             .from('properties')
-            .select('id, portal, title, description, location_raw, disposition, property_type, district, area_m2, ownership')
+            .select('id, portal, title, description, location_raw, disposition, property_type, district, area_m2, ownership, city_part')
             .order('id', { ascending: true })
             .range(from, from + PAGE_SIZE - 1);
 
@@ -160,13 +188,16 @@ async function normalize() {
             const pa = parseAreaFromTitle(r.title);
             if (pa && (r.area_m2 == null || pa.hadDecimal)) area_m2 = pa.value;
 
+            const city_part = r.city_part || parseCityPart(r.title, r.location_raw) || null;
+
             if (disposition !== r.disposition ||
                 property_type !== r.property_type ||
                 district !== r.district ||
                 ownership !== r.ownership ||
-                area_m2 !== r.area_m2) {
+                area_m2 !== r.area_m2 ||
+                city_part !== r.city_part) {
                 // portal included so the upsert's underlying INSERT satisfies NOT NULL.
-                updates.push({ id: r.id, portal: r.portal, disposition, property_type, district, ownership, area_m2 });
+                updates.push({ id: r.id, portal: r.portal, disposition, property_type, district, ownership, area_m2, city_part });
             }
         }
 

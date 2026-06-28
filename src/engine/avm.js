@@ -37,16 +37,17 @@ function statsFromArray(arr) {
     };
 }
 
-// Load all in-scope comps and build the three cohort levels.
+// Load all in-scope comps and build cohort levels (incl. micro-location city_part).
 async function loadBenchmarks() {
-    const l3 = {}, l2 = {}, l1 = {};   // arrays of ppm2 per key
+    const c3 = {}, c2 = {};            // city_part × disp × type, city_part × type
+    const l3 = {}, l2 = {}, l1 = {};   // district × disp × type, district × type, district
     const PAGE = 1000;
     let from = 0;
 
     for (;;) {
         const { data, error } = await supabase
             .from('properties')
-            .select('district, disposition, property_type, price_per_m2')
+            .select('district, city_part, disposition, property_type, price_per_m2')
             .in('property_type', SCOPE_TYPES)
             .not('district', 'is', null)
             .not('price_per_m2', 'is', null)
@@ -59,10 +60,14 @@ async function loadBenchmarks() {
         for (const r of data) {
             const ppm2 = Number(r.price_per_m2);
             if (!(ppm2 >= PPM2_MIN && ppm2 <= PPM2_MAX)) continue;
-            const d = r.district, ty = r.property_type, di = r.disposition;
+            const d = r.district, ty = r.property_type, di = r.disposition, cp = r.city_part;
             (l1[`${d}`] ||= []).push(ppm2);
             (l2[`${d}|${ty}`] ||= []).push(ppm2);
             if (di) (l3[`${d}|${di}|${ty}`] ||= []).push(ppm2);
+            if (cp) {
+                (c2[`${cp}|${ty}`] ||= []).push(ppm2);
+                if (di) (c3[`${cp}|${di}|${ty}`] ||= []).push(ppm2);
+            }
         }
 
         from += PAGE;
@@ -70,24 +75,27 @@ async function loadBenchmarks() {
     }
 
     const build = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, statsFromArray(v)]));
-    return { l3: build(l3), l2: build(l2), l1: build(l1) };
+    return { c3: build(c3), c2: build(c2), l3: build(l3), l2: build(l2), l1: build(l1) };
 }
 
 // Pick the most specific cohort meeting MIN_SAMPLE for a given property.
+// Micro-location (city_part) is tried first, then falls back to district.
 function getBenchmark(benchmarks, property) {
-    const d = property.district, ty = property.property_type, di = property.disposition;
+    const d = property.district, ty = property.property_type, di = property.disposition, cp = property.city_part;
     if (!d || !ty) return null;
 
     const candidates = [
-        { key: `${d}|${di}|${ty}`, map: benchmarks.l3, level: 'district+disp+type' },
-        { key: `${d}|${ty}`,       map: benchmarks.l2, level: 'district+type' },
-        { key: `${d}`,             map: benchmarks.l1, level: 'district' }
-    ];
+        { key: `${cp}|${di}|${ty}`, map: benchmarks.c3, level: 'micro+disp+type', ok: !!cp },
+        { key: `${cp}|${ty}`,       map: benchmarks.c2, level: 'micro+type',      ok: !!cp },
+        { key: `${d}|${di}|${ty}`,  map: benchmarks.l3, level: 'district+disp+type', ok: true },
+        { key: `${d}|${ty}`,        map: benchmarks.l2, level: 'district+type',   ok: true },
+        { key: `${d}`,              map: benchmarks.l1, level: 'district',        ok: true }
+    ].filter(c => c.ok);
+
     for (const c of candidates) {
         const b = c.map[c.key];
         if (b && b.sample_size >= MIN_SAMPLE) return { ...b, level: c.level };
     }
-    // fall back to the most specific available even if under MIN_SAMPLE (low confidence)
     for (const c of candidates) {
         const b = c.map[c.key];
         if (b) return { ...b, level: c.level + ' (low sample)' };

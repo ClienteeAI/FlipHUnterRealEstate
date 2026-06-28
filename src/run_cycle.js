@@ -7,6 +7,7 @@
 
 const { syncAll } = require('./db/sync_to_properties');
 const { normalize } = require('./db/normalize_properties');
+const { detectBrokers } = require('./db/detect_brokers');
 const { run: evaluateRun } = require('./engine/evaluate_run');
 const { run: checkLiveness } = require('./db/check_liveness');
 
@@ -21,10 +22,11 @@ async function cycle() {
         catch (e) { console.error(`!!! ${name} FAILED: ${e.message}`); }
     };
 
-    await step('1/4 SYNC landing → properties', syncAll);
-    await step('2/4 NORMALIZE (disposition/type/district/area/ownership)', normalize);
-    await step('3/4 EVALUATE (AVM + flip scoring)', evaluateRun);
-    await step('4/4 LIVENESS (prune dead leads)', checkLiveness);
+    await step('1/5 SYNC landing → properties', syncAll);
+    await step('2/5 NORMALIZE (disposition/type/district/area/ownership)', normalize);
+    await step('3/5 BROKER DETECTION (phone frequency)', detectBrokers);
+    await step('4/5 EVALUATE (AVM + flip scoring)', evaluateRun);
+    await step('5/5 LIVENESS (prune dead leads)', checkLiveness);
 
     console.log(`\n================ RUN CYCLE DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s ================`);
 }

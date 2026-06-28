@@ -63,7 +63,7 @@ async function run() {
     for (;;) {
         const { data, error } = await supabase
             .from('properties')
-            .select('id, portal, title, description, district, disposition, property_type, area_m2, price_numeric, price_per_m2, condition, is_agent, price_drop_count, first_seen_at')
+            .select('id, portal, title, description, district, city_part, disposition, property_type, area_m2, price_numeric, price_per_m2, condition, is_agent, price_drop_count, first_seen_at')
             .in('property_type', SCOPE_TYPES)
             .eq('is_active', true)
             .order('id', { ascending: true })
