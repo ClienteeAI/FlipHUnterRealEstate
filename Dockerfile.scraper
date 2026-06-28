@@ -5,6 +5,10 @@ FROM node:20-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
+# procps provides `ps`, which Crawlee's memory monitor needs (else 0 requests run)
+RUN apt-get update && apt-get install -y --no-install-recommends procps \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm install --omit=dev
 # install Chromium + OS dependencies matching the installed Playwright
