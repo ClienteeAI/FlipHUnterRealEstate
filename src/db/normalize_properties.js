@@ -51,7 +51,18 @@ const PRAHA_QUARTERS = [
     'Letňany', 'Klánovice', 'Koloděje', 'Újezd nad Lesy', 'Běchovice', 'Dolní Počernice',
     'Horní Počernice', 'Satalice', 'Vinoř', 'Jahodnice', 'Vršovice', 'Strašnice', 'Záběhlice',
     'Malešice', 'Hostivař', 'Petrovice', 'Štěrboholy', 'Dubeč', 'Dolní Měcholupy',
-    'Horní Měcholupy', 'Křeslice', 'Pitkovice', 'Kolovraty', 'Uhříněves', 'Chodov'
+    'Horní Měcholupy', 'Křeslice', 'Pitkovice', 'Kolovraty', 'Uhříněves', 'Chodov',
+    // --- Středočeský towns (micro-location for the region) ---
+    'Kladno', 'Kročehlavy', 'Slaný', 'Stochov', 'Unhošť', 'Buštěhrad', 'Velvary',
+    'Mladá Boleslav', 'Benátky nad Jizerou', 'Bakov nad Jizerou', 'Příbram', 'Dobříš',
+    'Sedlčany', 'Rožmitál', 'Kolín', 'Český Brod', 'Kouřim', 'Pečky', 'Zásmuky',
+    'Kutná Hora', 'Čáslav', 'Uhlířské Janovice', 'Nymburk', 'Poděbrady', 'Lysá nad Labem',
+    'Milovice', 'Sadská', 'Mělník', 'Kralupy nad Vltavou', 'Neratovice', 'Mšeno', 'Beroun',
+    'Králův Dvůr', 'Hořovice', 'Zdice', 'Rakovník', 'Nové Strašecí', 'Benešov', 'Vlašim',
+    'Votice', 'Týnec nad Sázavou', 'Bystřice', 'Brandýs nad Labem', 'Stará Boleslav',
+    'Čelákovice', 'Říčany', 'Odolena Voda', 'Klecany', 'Šestajovice', 'Čerčany', 'Mnichovice',
+    'Kostelec nad Černými lesy', 'Černošice', 'Jílové u Prahy', 'Roztoky', 'Dobřichovice',
+    'Rudná', 'Jesenice', 'Hostivice', 'Mníšek pod Brdy', 'Libčice nad Vltavou', 'Davle'
 ].map(q => ({ name: q, re: new RegExp(`\\b${stripDiacritics(q).toLowerCase().replace(/[-\s]+/g, '[-\\s]+')}\\b`) }))
  .sort((a, b) => b.name.length - a.name.length);
 

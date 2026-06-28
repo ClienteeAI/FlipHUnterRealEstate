@@ -39,6 +39,11 @@ const CONFIG = {
     //     (ownership-mixed) benchmark so co-op pricing isn't read as a "deal".
     druzstevniFactor: 0.85,
 
+    // --- Our benchmarks are ASKING prices; real SOLD prices run ~7% lower.
+    //     Discount the benchmark so discounts/margins aren't systematically
+    //     optimistic (anchored to inflated asking medians).
+    askingToSoldFactor: 0.93,
+
     // --- AVM confidence: need this many comparable listings in the cohort to trust it
     minCohortSample: 5,
 
@@ -127,9 +132,10 @@ function computeFlipMath(property, benchmark) {
         `${property.title || ''} ${property.description || ''}`);
     const renovation = estimateRenovation(area, renoLevel);
 
-    // Co-op (družstevní) sells below the ownership-mixed benchmark.
+    // Co-op (družstevní) sells below the ownership-mixed benchmark, and all
+    // benchmarks are asking-price based → calibrate down to approx sold prices.
     const coopAdjusted = /druzstevn/i.test((property.ownership || '').normalize('NFD').replace(/[̀-ͯ]/g, ''));
-    const f = coopAdjusted ? CONFIG.druzstevniFactor : 1;
+    const f = (coopAdjusted ? CONFIG.druzstevniFactor : 1) * CONFIG.askingToSoldFactor;
 
     // ARV: renovated sale price = upper-market Kč/m² × area. Fall back to median.
     let arvPerM2 = benchmark?.p75_price_per_m2 || benchmark?.median_price_per_m2 || null;

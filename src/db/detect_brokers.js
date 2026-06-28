@@ -20,11 +20,18 @@ function normPhone(p) {
     return s;
 }
 
+// Strong agency text signals — these almost never appear in genuine owner ads.
+// (CRM reference numbers, agency self-description, commission talk.)
+function looksLikeAgentText(title, description) {
+    const t = `${title || ''} ${description || ''}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    return /\bev\.?\s?c\.|evidencni cislo|cislo zakazky|zak\.\s?c|realitni kancelar|realitn[ií] makl|\bmakler|proviz[ei]|exkluzivn[ie] (nab[ií]z|zastup)|nabizime k prodeji|pro naseho klienta|penb zaji[sš]t/.test(t);
+}
+
 async function loadAll() {
     let all = [], from = 0;
     for (;;) {
         const { data, error } = await supabase.from('properties')
-            .select('id, contact_phone, is_agent').order('id').range(from, from + PAGE - 1);
+            .select('id, contact_phone, is_agent, title, description').order('id').range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         if (!data.length) break;
         all = all.concat(data);
@@ -45,9 +52,11 @@ async function detectBrokers() {
     }
     const brokerPhones = new Set(Object.keys(counts).filter(p => counts[p] >= THRESHOLD));
 
-    // listings currently "owner" but on a broker phone → flip to broker
+    // listings currently "owner" but (a) on a broker phone, or (b) with agency text
     const toFlag = rows
-        .filter(r => !r.is_agent && brokerPhones.has(normPhone(r.contact_phone)))
+        .filter(r => !r.is_agent && (
+            brokerPhones.has(normPhone(r.contact_phone)) ||
+            looksLikeAgentText(r.title, r.description)))
         .map(r => r.id);
 
     console.log(`Broker phones: ${brokerPhones.size} | listings to fix (owner→broker): ${toFlag.length}`);
