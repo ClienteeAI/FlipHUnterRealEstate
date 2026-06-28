@@ -24,6 +24,17 @@ services:
       - traefik.http.routers.fliphunter.tls.certresolver=mytlschallenge
       - traefik.http.services.fliphunter.loadbalancer.server.port=3000
 
+  # On-demand scraper (own portals). Not started by `up` (profile); run via:
+  #   docker compose --profile scrape run --rm scraper
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
+    image: fliphunter-scraper
+    env_file: .env
+    profiles: ["scrape"]
+    restart: "no"
+
 networks:
   n8n_default:
     external: true

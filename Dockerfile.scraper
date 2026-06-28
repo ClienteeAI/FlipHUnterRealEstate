@@ -1,0 +1,14 @@
+# Scraper runtime — needs Chromium + system deps (Playwright). Run on-demand
+# (daily cron), separate from the always-on dashboard image.
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package*.json ./
+RUN npm install --omit=dev
+# install Chromium + OS dependencies matching the installed Playwright
+RUN npx playwright install --with-deps chromium
+
+COPY . .
+CMD ["node", "src/run_scrape.js"]
