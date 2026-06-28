@@ -1,0 +1,32 @@
+# --- secrets (NEVER commit) ---
+.env
+.env.local
+.env.*.local
+
+# --- dependencies ---
+node_modules/
+
+# --- logs ---
+*.log
+run_fast_log.txt
+run_search_log.txt
+
+# --- local data / scraper output ---
+data/
+storage/
+scratch/
+live_results.json
+
+# --- debug artifacts / screenshots ---
+*.png
+bazos_debug.png
+bezrealitky_error.png
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+
+# obsolete root dev scripts (some contained hardcoded secrets)
+/test_*.js
+/get_*.js
